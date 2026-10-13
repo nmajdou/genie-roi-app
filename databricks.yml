@@ -1,0 +1,22 @@
+bundle:
+  name: genie-roi
+
+variables:
+  warehouse_id:
+    description: ID of the SQL warehouse used to query the system tables
+
+resources:
+  apps:
+    genie_roi:
+      name: genie-roi
+      description: Adoption, engagement, quality and ROI KPIs for Genie spaces and Genie Code
+      source_code_path: .
+      resources:
+        - name: sql-warehouse
+          sql_warehouse:
+            id: ${var.warehouse_id}
+            permission: CAN_USE
+
+targets:
+  default:
+    default: true
