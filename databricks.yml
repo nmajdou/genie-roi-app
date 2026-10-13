@@ -3,7 +3,9 @@ bundle:
 
 variables:
   warehouse_id:
-    description: ID of the SQL warehouse used to query the system tables
+    description: ID of the SQL warehouse used to query the data
+  schema:
+    description: catalog.schema where the refresh job writes the aggregate tables the app reads
 
 resources:
   apps:
@@ -11,6 +13,13 @@ resources:
       name: genie-roi
       description: Adoption, engagement, quality and ROI KPIs for Genie spaces and Genie Code
       source_code_path: .
+      config:
+        command: ["streamlit", "run", "app.py"]
+        env:
+          - name: DATABRICKS_WAREHOUSE_ID
+            value_from: sql-warehouse
+          - name: GENIE_ROI_SCHEMA
+            value: ${var.schema}
       # Run queries with the viewer's permissions. Remove to run everything as the app's service principal.
       user_api_scopes:
         - sql
@@ -20,6 +29,20 @@ resources:
           sql_warehouse:
             id: ${var.warehouse_id}
             permission: CAN_USE
+
+  jobs:
+    genie_roi_refresh:
+      name: genie-roi-refresh
+      description: Rebuilds the Genie ROI aggregate tables from the system tables
+      schedule:
+        quartz_cron_expression: "0 0 5 * * ?"
+        timezone_id: UTC
+      tasks:
+        - task_key: refresh
+          notebook_task:
+            notebook_path: ./refresh_aggregates.py
+            base_parameters:
+              schema: ${var.schema}
 
 targets:
   default:

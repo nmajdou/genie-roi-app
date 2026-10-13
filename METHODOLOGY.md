@@ -15,7 +15,7 @@ short internal survey.
 | Positive feedback rate | Thumbs up / (up + down), from `updateConversationMessageFeedback` | `system.access.audit` |
 | Regeneration rate, failed attempts | `regenerateConversationMessage`; message events with a non-200 status | `system.access.audit` |
 | Curation effort | Instruction, sample/benchmark question and benchmark-run events | `system.access.audit` |
-| Genie SQL success rate, latency, data read | Queries with `query_source.genie_space_id` set | `system.query.history` |
+| Genie SQL success rate, average duration, slow-query rate (> 10 s), data read | Queries with `query_source.genie_space_id` set | `system.query.history` |
 | Genie compute cost (estimate) | Genie share of execution time × warehouse list cost | `system.query.history`, `system.billing.usage`, `system.billing.list_prices` |
 
 ### Value model
@@ -42,7 +42,8 @@ survey below before presenting results.
   running under a user's identity. Check the top-users tables for outliers.
 * Few users give thumbs up/down, so the positive feedback rate is based on a small sample.
 * Space names are only resolved for spaces in the app's own workspace that the app's service principal can see.
-* System table data typically lands within an hour.
+* Data is as of the last refresh job run (daily); system table data itself lands within about an hour.
+* Conversations are counted per day, so one spanning several days is counted once per day.
 
 ### Recommended survey (Genie Code, adapted from the Databricks guide)
 

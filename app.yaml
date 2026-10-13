@@ -3,3 +3,7 @@ command: ["streamlit", "run", "app.py"]
 env:
   - name: DATABRICKS_WAREHOUSE_ID
     valueFrom: sql-warehouse
+  # Optional: catalog.schema written by the refresh job (fast). Unset = query the system tables live.
+  # When deploying with the bundle, set it with --var schema=... instead.
+  # - name: GENIE_ROI_SCHEMA
+  #   value: main.genie_roi
