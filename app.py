@@ -22,8 +22,14 @@ cfg = Config()
 # ---------------------------------------------------------------------------
 # Data access
 # ---------------------------------------------------------------------------
+# With user authorization enabled (README), queries run with the viewer's own permissions.
+# Otherwise they run as the app's service principal.
+USER_TOKEN = st.context.headers.get("X-Forwarded-Access-Token")
+VIEWER = st.context.headers.get("X-Forwarded-Email", "") if USER_TOKEN else ""
+
+
 @st.cache_resource
-def get_connection():
+def sp_connection():
     return sql.connect(
         server_hostname=cfg.host,
         http_path=f"/sql/1.0/warehouses/{WAREHOUSE_ID}",
@@ -31,27 +37,40 @@ def get_connection():
     )
 
 
-@st.cache_data(ttl=3600, show_spinner="Querying system tables...")
-def run(query: str, days: int, ws: str) -> pd.DataFrame:
-    with get_connection().cursor() as cur:
-        cur.execute(query, {"days": days, "ws": ws})
+def execute(query: str, params: dict, token: str | None) -> pd.DataFrame:
+    if not token:
+        with sp_connection().cursor() as cur:
+            cur.execute(query, params)
+            return cur.fetchall_arrow().to_pandas()
+    with sql.connect(
+        server_hostname=cfg.host, http_path=f"/sql/1.0/warehouses/{WAREHOUSE_ID}", access_token=token
+    ) as conn, conn.cursor() as cur:
+        cur.execute(query, params)
         return cur.fetchall_arrow().to_pandas()
+
+
+# `viewer` keys the cache per user so viewers never see each other's results; `_token` is not hashed.
+@st.cache_data(ttl=3600, show_spinner="Querying system tables...")
+def run(query: str, days: int, ws: str, humans: int, viewer: str, _token: str | None) -> pd.DataFrame:
+    params = {k: v for k, v in {"days": days, "ws": ws, "humans": humans}.items() if f":{k}" in query}
+    return execute(query, params, _token)
 
 
 def safe_run(query: str, days: int, ws: str) -> pd.DataFrame | None:
     """Run a query; show the error instead of crashing (missing grants, table not enabled...)."""
     try:
-        return run(query, days, ws)
+        return run(query, days, ws, humans, VIEWER, USER_TOKEN)
     except Exception as e:  # noqa: BLE001
         st.warning(f"Query failed - check system table grants (see README). Details: {e}")
         return None
 
 
 @st.cache_data(ttl=3600)
-def space_names() -> dict[str, str]:
-    """Genie space titles visible to the app in this workspace. Falls back to ids."""
+def space_names(viewer: str, _token: str | None) -> dict[str, str]:
+    """Genie space titles visible in this workspace. Falls back to ids."""
     try:
-        resp = WorkspaceClient().genie.list_spaces()
+        w = WorkspaceClient(host=cfg.host, token=_token, auth_type="pat") if _token else WorkspaceClient()
+        resp = w.genie.list_spaces()
         return {s.space_id: s.title for s in (resp.spaces or [])}
     except Exception:  # noqa: BLE001
         return {}
@@ -78,6 +97,7 @@ with st.sidebar:
     st.header("Filters")
     days = st.select_slider("Lookback window (days)", options=[7, 30, 60, 90, 180, 365], value=90)
     ws = st.text_input("Workspace id (empty = all workspaces)", "").strip()
+    humans = int(st.checkbox("Human users only", True, help="Exclude service principals and automated API callers"))
     months = days / 30.4
 
     st.header("ROI assumptions")
@@ -85,7 +105,10 @@ with st.sidebar:
     currency = st.text_input("Currency", "USD")
     hourly_cost = st.number_input("Loaded cost per hour", 0.0, 1000.0, 75.0, 5.0)
     st.subheader("Genie Code")
-    min_per_code = st.number_input("Minutes saved per Genie Code interaction", 0.0, 120.0, 5.0, 0.5)
+    min_per_code = st.number_input(
+        "Minutes saved per active user-day", 0.0, 480.0, 20.0, 5.0,
+        help="Valued per day of use rather than per interaction: agent mode can log thousands of events a day.",
+    )
     st.subheader("Genie spaces")
     min_per_question = st.number_input("Business-user minutes saved per answered question", 0.0, 240.0, 10.0, 1.0)
     deflection = st.slider("% of questions that would otherwise be an analyst request", 0, 100, 20)
@@ -97,7 +120,7 @@ with st.sidebar:
 st.title("📈 Genie ROI")
 st.caption(
     f"Last {days} days · {'workspace ' + ws if ws else 'all workspaces in the account'} · "
-    "source: Databricks system tables, refreshed hourly"
+    f"querying as {VIEWER or 'the app service principal'} · source: Databricks system tables, cached 1 h"
 )
 
 tab_overview, tab_spaces, tab_code, tab_method = st.tabs(
@@ -135,8 +158,8 @@ with tab_overview:
     )
 
     st.subheader("Estimated value")
-    answered = max(genie.get("questions", 0) - genie.get("failed_questions", 0) - down, 0)
-    code_hours = code.get("interactions", 0) * min_per_code / 60
+    answered = max(genie.get("questions", 0) - down, 0)
+    code_hours = code.get("active_user_days", 0) * min_per_code / 60
     user_hours = answered * min_per_question / 60
     analyst_hours = answered * deflection / 100 * min_per_request / 60
     total_hours = code_hours + user_hours + analyst_hours
@@ -153,7 +176,7 @@ with tab_overview:
     st.dataframe(
         pd.DataFrame(
             [
-                ["Genie Code", f"{code.get('interactions', 0):,} interactions × {min_per_code:g} min", code_hours],
+                ["Genie Code", f"{code.get('active_user_days', 0):,} active user-days × {min_per_code:g} min", code_hours],
                 ["Genie spaces - business users", f"{answered:,} answered questions × {min_per_question:g} min", user_hours],
                 ["Genie spaces - analyst deflection",
                  f"{answered:,} × {deflection}% × {min_per_request:g} min", analyst_hours],
@@ -164,7 +187,7 @@ with tab_overview:
         use_container_width=True,
     )
     st.caption(
-        "Answered questions = questions - failed - thumbs down. Cost = estimated Genie share of warehouse "
+        "Questions = successful message events. Answered questions = questions - thumbs down. Cost = estimated Genie share of warehouse "
         f"list cost ({compute_cost:,.0f} USD) + other costs × {months:.1f} months. Genie Code usage cost is not "
         "included. All value figures depend on the assumptions in the sidebar."
     )
@@ -203,12 +226,14 @@ with tab_spaces:
     c[0].metric("Thumbs up", f"{up:,}")
     c[1].metric("Thumbs down", f"{down:,}")
     c[2].metric("Regeneration rate", pct(genie.get("regenerations", 0), genie.get("questions", 0)))
-    c[3].metric("Failed questions", pct(genie.get("failed_questions", 0), genie.get("questions", 0)))
+    failed = genie.get("failed_questions", 0)
+    c[3].metric("Failed message attempts", pct(failed, failed + genie.get("questions", 0)),
+                help="Message events with a non-200 status, often a few API clients retrying")
 
     st.subheader("By space")
     by_space = safe_run(q.GENIE_BY_SPACE, days, ws)
     if by_space is not None and not by_space.empty:
-        names = space_names()
+        names = space_names(VIEWER, USER_TOKEN)
         by_space.insert(2, "space_name", by_space["space_id"].map(names).fillna(""))
         rated = by_space["thumbs_up"] + by_space["thumbs_down"]
         by_space["positive_pct"] = (100 * by_space["thumbs_up"] / rated.where(rated > 0)).round(0)

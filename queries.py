@@ -1,6 +1,7 @@
-"""SQL used by the app. Every query takes two named parameters:
-  :days - lookback window in days
-  :ws   - workspace id to filter on ('' = all workspaces)
+"""SQL used by the app. Queries use these named parameters:
+  :days   - lookback window in days
+  :ws     - workspace id to filter on ('' = all workspaces)
+  :humans - 1 = only identities that look like users (email), 0 = include service principals
 """
 
 # ---------------------------------------------------------------------------
@@ -15,6 +16,7 @@ WITH e AS (
   FROM system.access.assistant_events
   WHERE CAST(event_date AS DATE) >= date_sub(current_date(), :days)
     AND (:ws = '' OR workspace_id = :ws)
+    AND (:humans = 0 OR initiated_by LIKE '%@%')
 )
 """
 
@@ -22,7 +24,7 @@ CODE_KPIS = _CODE_BASE + """
 SELECT COUNT(*) AS interactions,
        COUNT(DISTINCT user_email) AS active_users,
        COUNT(DISTINCT workspace_id) AS workspaces,
-       COUNT(DISTINCT d) AS active_days
+       COUNT(DISTINCT user_email, d) AS active_user_days
 FROM e
 """
 
@@ -71,22 +73,29 @@ WITH g AS (
          request_params['conversation_id'] AS conversation_id,
          upper(request_params['feedback_rating']) AS rating,
          response.status_code AS status_code,
-         action_name IN ({MESSAGE_ACTIONS}) AS is_question
+         action_name IN ({MESSAGE_ACTIONS}) AND response.status_code = 200 AS is_question,
+         action_name IN ({MESSAGE_ACTIONS}) AND response.status_code <> 200 AS is_failed_question
   FROM system.access.audit
   WHERE service_name = 'aibiGenie'
     AND event_date >= date_sub(current_date(), :days)
     AND (:ws = '' OR CAST(workspace_id AS STRING) = :ws)
+    AND (:humans = 0 OR user_identity.email LIKE '%@%')
+    AND action_name IN ({MESSAGE_ACTIONS}, 'createSpace', 'updateConversationMessageFeedback',
+                        'regenerateConversationMessage', 'cancelMessage', 'createInstruction',
+                        'updateInstruction', 'createCuratedQuestion', 'updateCuratedQuestion',
+                        'createEvaluationRun')
 )
 """
 
-# feedback_rating values are matched loosely (POSITIVE / THUMBS_UP ...) - check
-# the raw values with GENIE_RATING_VALUES if the thumbs counts look wrong.
-_UP = "(rating LIKE '%POS%' OR rating LIKE '%UP%')"
-_DOWN = "(rating LIKE '%NEG%' OR rating LIKE '%DOWN%')"
+# Observed feedback_rating values: THUMBS_UP / THUMBS_DOWN (GENIE_RATING_VALUES lists them).
+_UP = "rating = 'THUMBS_UP'"
+_DOWN = "rating = 'THUMBS_DOWN'"
 
 GENIE_KPIS = _GENIE_BASE + f"""
 SELECT COUNT_IF(is_question) AS questions,
-       COUNT(DISTINCT CASE WHEN is_question THEN conversation_id END) AS conversations,
+       -- API conversation starts carry no conversation_id: each one is a new conversation
+       COUNT(DISTINCT CASE WHEN is_question THEN conversation_id END)
+         + COUNT_IF(is_question AND action_name = 'genieStartConversationMessage') AS conversations,
        COUNT(DISTINCT CASE WHEN is_question THEN user_email END) AS active_users,
        COUNT(DISTINCT CASE WHEN is_question THEN space_id END) AS active_spaces,
        COUNT_IF(action_name = 'createSpace') AS spaces_created,
@@ -94,7 +103,7 @@ SELECT COUNT_IF(is_question) AS questions,
        COUNT_IF(action_name = 'updateConversationMessageFeedback' AND {_DOWN}) AS thumbs_down,
        COUNT_IF(action_name = 'regenerateConversationMessage') AS regenerations,
        COUNT_IF(action_name = 'cancelMessage') AS cancellations,
-       COUNT_IF(is_question AND status_code <> 200) AS failed_questions
+       COUNT_IF(is_failed_question) AS failed_questions
 FROM g
 """
 
@@ -126,7 +135,9 @@ GENIE_BY_SPACE = _GENIE_BASE + f"""
 SELECT workspace_id, space_id,
        COUNT_IF(is_question) AS questions,
        COUNT(DISTINCT CASE WHEN is_question THEN user_email END) AS users,
-       COUNT(DISTINCT CASE WHEN is_question THEN conversation_id END) AS conversations,
+       -- API conversation starts carry no conversation_id: each one is a new conversation
+       COUNT(DISTINCT CASE WHEN is_question THEN conversation_id END)
+         + COUNT_IF(is_question AND action_name = 'genieStartConversationMessage') AS conversations,
        COUNT_IF(action_name = 'updateConversationMessageFeedback' AND {_UP}) AS thumbs_up,
        COUNT_IF(action_name = 'updateConversationMessageFeedback' AND {_DOWN}) AS thumbs_down,
        COUNT_IF(action_name IN ('createInstruction', 'updateInstruction', 'createCuratedQuestion',

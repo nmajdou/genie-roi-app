@@ -33,21 +33,27 @@ System tables hold data for all workspaces in the account, so the app does too b
 
 1. **System tables enabled** for the `access`, `query` and `billing` schemas (account admin).
 2. **A SQL warehouse** (serverless recommended) for the app to query.
-3. **Grants for the app's service principal.** After you create the app, a metastore admin runs:
+3. **Access to the system tables.** Choose one mode:
 
-   ```sql
-   GRANT USE CATALOG ON CATALOG system TO `<app-service-principal-application-id>`;
-   GRANT USE SCHEMA ON SCHEMA system.access TO `<app-service-principal-application-id>`;
-   GRANT USE SCHEMA ON SCHEMA system.query TO `<app-service-principal-application-id>`;
-   GRANT USE SCHEMA ON SCHEMA system.billing TO `<app-service-principal-application-id>`;
-   GRANT SELECT ON TABLE system.access.audit TO `<app-service-principal-application-id>`;
-   GRANT SELECT ON TABLE system.access.assistant_events TO `<app-service-principal-application-id>`;
-   GRANT SELECT ON TABLE system.query.history TO `<app-service-principal-application-id>`;
-   GRANT SELECT ON TABLE system.billing.usage TO `<app-service-principal-application-id>`;
-   GRANT SELECT ON TABLE system.billing.list_prices TO `<app-service-principal-application-id>`;
-   ```
+   * **User authorization (default in `databricks.yml`).** The app queries with each viewer's own
+     permissions (`user_api_scopes: sql, dashboards.genie`), so viewers need `SELECT` on the tables below. This
+     may require a workspace admin to enable user authorization for Databricks Apps.
+   * **Service principal.** Remove `user_api_scopes` from `databricks.yml`. Every viewer sees the same data, and
+     a metastore admin grants the app's service principal access once:
 
-   The service principal's application id is shown on the app's **Authorization** tab.
+     ```sql
+     GRANT USE CATALOG ON CATALOG system TO `<app-service-principal-application-id>`;
+     GRANT USE SCHEMA ON SCHEMA system.access TO `<app-service-principal-application-id>`;
+     GRANT USE SCHEMA ON SCHEMA system.query TO `<app-service-principal-application-id>`;
+     GRANT USE SCHEMA ON SCHEMA system.billing TO `<app-service-principal-application-id>`;
+     GRANT SELECT ON TABLE system.access.audit TO `<app-service-principal-application-id>`;
+     GRANT SELECT ON TABLE system.access.assistant_events TO `<app-service-principal-application-id>`;
+     GRANT SELECT ON TABLE system.query.history TO `<app-service-principal-application-id>`;
+     GRANT SELECT ON TABLE system.billing.usage TO `<app-service-principal-application-id>`;
+     GRANT SELECT ON TABLE system.billing.list_prices TO `<app-service-principal-application-id>`;
+     ```
+
+     The service principal's application id is shown on the app's **Authorization** tab.
 
 > The app shows user emails (top users). Restrict who can use the app (app permissions: `CAN USE`) to the
 > people allowed to see this data.
@@ -98,3 +104,7 @@ databricks.yml   Asset Bundle definition
 * Value and ROI figures are estimates driven by your assumptions. Calibrate them with a survey or time study.
 * Compute cost uses list prices and splits shared warehouse cost by execution time.
 * `assistant_events` counts before 7 May 2026 include background requests and are inflated.
+* On large accounts the audit-log queries can take 1–2 minutes on first load; results are cached for an hour.
+  Use the workspace filter or a shorter window to speed them up.
+* "Returning users" for the first month in the window is always 0 (there is no previous month to compare to).
+* Tested on an AWS serverless workspace with system tables enabled (October 2026).

@@ -8,24 +8,25 @@ short internal survey.
 | KPI | Definition | Source |
 |---|---|---|
 | Genie Code interactions | User-submitted chat, agent-mode and inline-assistant requests | `system.access.assistant_events` |
-| Genie Code active users (DAU / MAU) | Distinct `initiated_by` per day / month | `system.access.assistant_events` |
+| Genie Code active users (DAU / MAU), active user-days | Distinct `initiated_by` per day / month; distinct (user, day) pairs | `system.access.assistant_events` |
 | New vs returning users | First month seen vs also active the previous month | both |
-| Genie questions | `createConversationMessage`, `createAgenticResponse` and their API equivalents | `system.access.audit` (`aibiGenie`) |
+| Genie questions | Successful (HTTP 200) `createConversationMessage`, `createAgenticResponse` and their API equivalents | `system.access.audit` (`aibiGenie`) |
 | Genie conversations, active users, active spaces | Distinct conversation / user / space ids on question events | `system.access.audit` |
 | Positive feedback rate | Thumbs up / (up + down), from `updateConversationMessageFeedback` | `system.access.audit` |
-| Regeneration rate, failed questions | `regenerateConversationMessage`; question events with a non-200 status | `system.access.audit` |
+| Regeneration rate, failed attempts | `regenerateConversationMessage`; message events with a non-200 status | `system.access.audit` |
 | Curation effort | Instruction, sample/benchmark question and benchmark-run events | `system.access.audit` |
 | Genie SQL success rate, latency, data read | Queries with `query_source.genie_space_id` set | `system.query.history` |
 | Genie compute cost (estimate) | Genie share of execution time × warehouse list cost | `system.query.history`, `system.billing.usage`, `system.billing.list_prices` |
 
 ### Value model
 
-* **Genie Code**: interactions × minutes saved per interaction.
+* **Genie Code**: active user-days × minutes saved per day of use. Interaction counts are not used for value:
+  agent mode and scripted clients can log thousands of events per user per day.
 * **Genie spaces, business users**: answered questions × minutes saved per question (time not spent waiting
   for or building a report).
 * **Genie spaces, analyst deflection**: answered questions × share that would otherwise be an analyst request ×
   analyst minutes per request.
-* **Answered questions** = questions − failed − thumbs down (conservative).
+* **Answered questions** = successful questions − thumbs down (conservative).
 * **ROI** = (value − cost) / cost.
 
 All minute and cost figures are **assumptions** set in the sidebar. Calibrate them with a time study or the
@@ -37,7 +38,9 @@ survey below before presenting results.
   are inflated.
 * Compute cost uses **list prices** and attributes shared warehouse cost by execution time; it is an estimate.
 * Genie Code usage cost is not included.
-* Feedback rating values are matched loosely; check *Debug: raw feedback rating values* on the Genie spaces tab.
+* *Human users only* keeps identities with an email address; it excludes service principals, but not scripts
+  running under a user's identity. Check the top-users tables for outliers.
+* Few users give thumbs up/down, so the positive feedback rate is based on a small sample.
 * Space names are only resolved for spaces in the app's own workspace that the app's service principal can see.
 * System table data typically lands within an hour.
 

@@ -11,6 +11,10 @@ resources:
       name: genie-roi
       description: Adoption, engagement, quality and ROI KPIs for Genie spaces and Genie Code
       source_code_path: .
+      # Run queries with the viewer's permissions. Remove to run everything as the app's service principal.
+      user_api_scopes:
+        - sql
+        - dashboards.genie
       resources:
         - name: sql-warehouse
           sql_warehouse:
