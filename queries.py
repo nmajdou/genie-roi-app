@@ -168,3 +168,18 @@ WHERE d >= date_sub(current_date(), :days)
   AND (:ws = '' OR workspace_id = :ws)
   {humans}
 """
+
+
+def survey_sql(table: str) -> str:
+    """Averages of the survey app's responses (survey/), used as the app's default ROI assumptions."""
+    return f"""
+SELECT
+  count_if(survey = 'genie_code')                                                  AS code_responses,
+  avg(CASE WHEN survey = 'genie_code' THEN time_saved_pct END)                     AS time_saved_pct,
+  avg(CASE WHEN survey = 'genie_code' THEN coding_hours END)                       AS coding_hours,
+  count_if(survey = 'genie_agents')                                                AS agents_responses,
+  avg(CASE WHEN survey = 'genie_agents' THEN minutes_saved END)                    AS minutes_saved,
+  100 * avg(CASE WHEN survey = 'genie_agents' THEN CAST(asked_analyst AS INT) END) AS deflection_pct,
+  avg(CASE WHEN survey = 'genie_agents' THEN analyst_minutes END)                  AS analyst_minutes
+FROM {table}
+"""

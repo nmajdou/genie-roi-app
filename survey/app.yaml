@@ -1,0 +1,8 @@
+command: ["streamlit", "run", "app.py"]
+
+env:
+  - name: DATABRICKS_WAREHOUSE_ID
+    valueFrom: sql-warehouse
+  # Table where responses are saved. The Genie ROI app reads the same table (set GENIE_ROI_SURVEY_TABLE there too).
+  - name: GENIE_ROI_SURVEY_TABLE
+    value: main.genie_roi.survey_responses

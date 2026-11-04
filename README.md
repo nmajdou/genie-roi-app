@@ -90,6 +90,38 @@ streamlit run app.py
 
 Locally, the queries run with your own identity and permissions.
 
+## Survey app (optional)
+
+`survey/` is a second, small Databricks App that asks users the time-saved questions (Genie Code and Genie
+spaces, see [METHODOLOGY.md](METHODOLOGY.md)) and saves each response to a Delta table. When the Genie ROI app
+has `GENIE_ROI_SURVEY_TABLE` set, it reads that table and uses the averages as its default assumptions
+(minutes saved, analyst deflection, analyst minutes, survey-based Genie Code estimate). The hourly cost stays a
+placeholder: get it from Finance.
+
+Responses are **anonymous** (no email or user id is stored) and are written by the survey app's **service
+principal**, so respondents need no permissions on the table.
+
+1. Create the table, or let the app create it on first start. Grant the survey app's service principal (its
+   application id is on the app's **Authorization** tab) the right to write it:
+
+   ```sql
+   CREATE SCHEMA IF NOT EXISTS main.genie_roi;
+   GRANT USE CATALOG ON CATALOG main TO `<survey-app-sp-application-id>`;
+   GRANT USE SCHEMA, CREATE TABLE ON SCHEMA main.genie_roi TO `<survey-app-sp-application-id>`;
+   -- if the table already exists instead:
+   GRANT SELECT, MODIFY ON TABLE main.genie_roi.survey_responses TO `<survey-app-sp-application-id>`;
+   ```
+
+2. Create a custom app from the `survey/` folder of the Git folder, with a SQL warehouse resource (key
+   `sql-warehouse`, **Can use**). Set `GENIE_ROI_SURVEY_TABLE` in `survey/app.yaml`. No user authorization
+   scopes are needed.
+3. Give **CAN USE** on the survey app to the people you want to survey, and share its URL.
+4. In the Genie ROI app, set `GENIE_ROI_SURVEY_TABLE` to the same table (uncomment it in `app.yaml`) and
+   redeploy. Viewers need `SELECT` on the table, because the Genie ROI app queries it with their identity.
+
+Each answer bucket is stored as its midpoint (for example "10-30%" is stored as 20), so averages are
+approximate. Genie Code minutes per active user-day are derived as coding hours per week × 60 / 5 × % saved.
+
 ## Files
 
 ```
@@ -99,6 +131,7 @@ refresh_aggregates.py  Notebook run by the daily job to rebuild the aggregate ta
 METHODOLOGY.md         KPI definitions and value model (also shown in the app)
 app.yaml               Databricks Apps runtime config (used when deploying without the bundle)
 databricks.yml         Asset Bundle: app + daily refresh job
+survey/                Optional survey app that saves responses for the Genie ROI app's assumptions
 ```
 
 ## Limitations

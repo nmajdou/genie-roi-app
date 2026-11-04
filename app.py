@@ -5,6 +5,7 @@ refresh job (fast) or live from the system tables, and computes every KPI from t
 """
 
 import os
+import re
 from concurrent.futures import ThreadPoolExecutor
 
 import pandas as pd
@@ -19,6 +20,7 @@ st.set_page_config(page_title="Genie ROI", page_icon="📈", layout="wide")
 
 WAREHOUSE_ID = os.getenv("DATABRICKS_WAREHOUSE_ID")
 SCHEMA = os.getenv("GENIE_ROI_SCHEMA", "").strip()  # catalog.schema written by the refresh job; '' = live mode
+SURVEY_TABLE = os.getenv("GENIE_ROI_SURVEY_TABLE", "").strip()  # optional: responses saved by the survey/ app
 cfg = Config()
 print(f"Genie ROI starting - data source: {SCHEMA or 'live system tables'}", flush=True)
 
@@ -82,6 +84,19 @@ def space_names(viewer: str, _token: str | None) -> dict[str, str]:
         return {}
 
 
+@st.cache_data(ttl=600, show_spinner=False)
+def survey_summary(viewer: str, _token: str | None) -> dict:
+    """Survey averages (see survey/), or {} if no survey table is set or it can't be read."""
+    if not re.fullmatch(r"[\w-]+\.[\w-]+\.[\w-]+", SURVEY_TABLE):
+        return {}
+    try:
+        row = execute(q.survey_sql(SURVEY_TABLE), {}, _token).iloc[0]
+        return {k: None if pd.isna(v) else float(v) for k, v in row.items()}
+    except Exception as e:  # noqa: BLE001
+        print(f"Survey table {SURVEY_TABLE} not readable: {e}", flush=True)
+        return {}
+
+
 def pct(num, den) -> str:
     return f"{100 * num / den:.0f}%" if den else "-"
 
@@ -121,18 +136,36 @@ with st.sidebar:
     months = days / 30.4
 
     st.header("ROI assumptions")
-    st.caption("Defaults are placeholders: replace them with your own figures or survey results.")
+    sv = survey_summary(VIEWER, USER_TOKEN)
+
+    def from_survey(key: str, placeholder: float, hi: float) -> float:
+        v = sv.get(key)
+        return placeholder if v is None else min(max(round(v, 1), 0.0), hi)
+
+    if sv.get("code_responses") or sv.get("agents_responses"):
+        st.caption(f"Defaults come from the survey ({sv.get('code_responses', 0):.0f} Genie Code and "
+                   f"{sv.get('agents_responses', 0):.0f} Genie responses). The hourly cost is still a placeholder.")
+    else:
+        st.caption("Defaults are placeholders: replace them with your own figures or survey results.")
     currency = st.text_input("Currency", "USD")
     hourly_cost = st.number_input("Loaded cost per hour", 0.0, 1000.0, 75.0, 5.0)
     st.subheader("Genie Code")
+    # Survey: share of weekly coding time saved, spread over 5 working days.
+    code_survey = (sv["coding_hours"] * 60 / 5 * sv["time_saved_pct"] / 100
+                   if sv.get("coding_hours") is not None and sv.get("time_saved_pct") is not None else None)
     min_per_code = st.number_input(
-        "Minutes saved per active user-day", 0.0, 480.0, 20.0, 5.0,
-        help="Valued per day of use rather than per interaction: agent mode can log thousands of events a day.",
+        "Minutes saved per active user-day", 0.0, 480.0,
+        20.0 if code_survey is None else min(round(code_survey, 1), 480.0), 5.0,
+        help="Valued per day of use rather than per interaction: agent mode can log thousands of events a day. "
+             "From the survey: coding hours per week × 60 / 5 days × % of time saved.",
     )
     st.subheader("Genie spaces")
-    min_per_question = st.number_input("Business-user minutes saved per answered question", 0.0, 240.0, 10.0, 1.0)
-    deflection = st.slider("% of questions that would otherwise be an analyst request", 0, 100, 20)
-    min_per_request = st.number_input("Analyst minutes per ad-hoc request", 0.0, 480.0, 45.0, 5.0)
+    min_per_question = st.number_input("Business-user minutes saved per answered question", 0.0, 240.0,
+                                       from_survey("minutes_saved", 10.0, 240.0), 1.0)
+    deflection = st.slider("% of questions that would otherwise be an analyst request", 0, 100,
+                           int(from_survey("deflection_pct", 20, 100)))
+    min_per_request = st.number_input("Analyst minutes per ad-hoc request", 0.0, 480.0,
+                                      from_survey("analyst_minutes", 45.0, 480.0), 5.0)
     st.subheader("Costs")
     include_compute = st.checkbox("Include estimated Genie warehouse cost (list price, USD)", True)
     other_costs_month = st.number_input("Other monthly costs (licences, enablement...)", 0.0, 1e7, 0.0, 100.0)
@@ -245,8 +278,10 @@ with tab_overview:
     with st.expander("Survey-based estimate (recommended by Databricks alongside system tables)"):
         st.caption("Use the time-savings answer from your internal Genie Code survey (see Methodology).")
         c = st.columns(3)
-        survey_pct = c[0].number_input("Average time saved (%)", 0.0, 100.0, 15.0, 1.0)
-        dev_hours_week = c[1].number_input("Hours of coding per user per week", 0.0, 60.0, 20.0, 1.0)
+        survey_pct = c[0].number_input("Average time saved (%)", 0.0, 100.0,
+                                       from_survey("time_saved_pct", 15.0, 100.0), 1.0)
+        dev_hours_week = c[1].number_input("Hours of coding per user per week", 0.0, 60.0,
+                                           from_survey("coding_hours", 20.0, 60.0), 1.0)
         weeks = days / 7
         survey_hours = code.get("active_users", 0) * dev_hours_week * weeks * survey_pct / 100
         c[2].metric("Genie Code hours saved (survey)", f"{survey_hours:,.0f}",
