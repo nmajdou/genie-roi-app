@@ -89,72 +89,135 @@ if err := ensure_table():
     st.stop()
 
 # ---------------------------------------------------------------------------
+# Look and feel: a form-style page (header card, one white card per question)
+# ---------------------------------------------------------------------------
+ACCENT = "#6D5DFC"
+st.markdown(f"""
+<style>
+  #MainMenu, footer, [data-testid="stToolbar"], [data-testid="stHeader"] {{display: none;}}
+  .block-container {{padding-top: 2rem; max-width: 760px;}}
+  [data-testid="stForm"] {{border: none; padding: 0;}}
+  [class*="st-key-q-"] {{
+    background: #FFFFFF; border: 1px solid #DADCE0; border-radius: 8px; padding: 18px 24px 12px;
+    margin-bottom: .25rem;
+  }}
+  .card {{background: #FFFFFF; border: 1px solid #DADCE0; border-radius: 8px; margin-bottom: 1rem; overflow: hidden;}}
+  .card .band {{height: 10px; background: linear-gradient(90deg, {ACCENT}, #14B8A6);}}
+  .card .body {{padding: 22px 24px 18px;}}
+  .card h1 {{font-size: 2rem; font-weight: 500; margin: 0 0 .5rem; padding: 0;}}
+  .card h2 {{font-size: 1.35rem; font-weight: 500; margin: 0; padding: 0;}}
+  .card p {{color: #3C4043; margin: .25rem 0;}}
+  .section {{border-left: 6px solid {ACCENT};}}
+  .req {{color: #D93025;}}
+  .q {{font-size: 1.02rem; font-weight: 500; color: #202124; margin-bottom: .1rem;}}
+  .hint {{font-size: .85rem; color: #5F6368;}}
+</style>
+""", unsafe_allow_html=True)
+
+
+def card(title: str, text: str = "", band: bool = False, section: bool = False, big: bool = False) -> None:
+    tag = "h1" if big else "h2"
+    st.markdown(
+        f'<div class="card{" section" if section else ""}">{"<div class=band></div>" if band else ""}'
+        f'<div class="body"><{tag}>{title}</{tag}>{text}</div></div>',
+        unsafe_allow_html=True,
+    )
+
+
+def question(label: str, required: bool = True, hint: str = ""):
+    """A white card holding one question; the widget inside uses a collapsed label."""
+    st.session_state.q_count = st.session_state.get("q_count", 0) + 1
+    box = st.container(key=f"q-{st.session_state.q_count}")
+    box.markdown(f'<div class="q">{label}{" <span class=req>*</span>" if required else ""}</div>'
+                 + (f'<div class="hint">{hint}</div>' if hint else ""), unsafe_allow_html=True)
+    return box
+
+
+def choice(label: str, options, required: bool = True, hint: str = "", horizontal: bool = False):
+    return question(label, required, hint).radio(label, list(options), index=None, horizontal=horizontal,
+                                                 label_visibility="collapsed")
+
+
+def checkboxes(label: str, options, required: bool = True, hint: str = "Select all that apply.") -> list[str]:
+    box = question(label, required, hint)
+    return [o for i, o in enumerate(options) if box.checkbox(o, key=f"{label}-{i}")]
+
+
+def scale(label: str, low: str, high: str, required: bool = False):
+    box = question(label, required, f"1 = {low}, 5 = {high}")
+    return box.radio(label, SCALE, index=None, horizontal=True, label_visibility="collapsed")
+
+
+def text(label: str) -> str:
+    return question(label, required=False).text_area(label, label_visibility="collapsed",
+                                                     placeholder="Your answer")
+
+
+HEADER = ('<p>Help us measure the time Genie saves you, and how to make it better.</p>'
+          '<p class="hint">About 5 minutes · anonymous: we don\'t record your name or email.</p>'
+          '<p class="hint"><span class="req">*</span> Required</p>')
+
+# ---------------------------------------------------------------------------
 # Survey
 # ---------------------------------------------------------------------------
-st.title("📝 Genie survey")
-st.write("Five minutes, anonymous: we don't record your name or email. Your answers help us measure the time "
-         "Genie saves and improve it.")
+st.session_state.q_count = 0  # question cards are numbered afresh on every rerun
 
 if st.session_state.get("done"):
-    st.success("Thank you! Your answers have been recorded.")
+    card("Genie survey", "<p>Your response has been recorded. Thank you!</p>", band=True, big=True)
     st.stop()
 
-st.write("**Which tools do you use?** Tick one or both.")
-uses_code = st.checkbox("Genie Code: writing code or SQL in notebooks or the SQL editor")
-uses_agents = st.checkbox("Genie: asking data questions in plain language")
+card("Genie survey", HEADER, band=True, big=True)
+
+box = question("Which tools do you use?", hint="Tick one or both.")
+uses_code = box.checkbox("Genie Code: writing code or SQL in notebooks or the SQL editor")
+uses_agents = box.checkbox("Genie: asking data questions in plain language")
 if not (uses_code or uses_agents):
     st.stop()
 
-with st.form("survey"):
+with st.form("survey", border=False):
     if uses_code:
-        st.subheader("Genie Code")
-        c_role = st.radio("A1. What is your role?", ["Data engineer", "Data scientist", "Analyst", "Other"],
-                          index=None)
-        c_frequency = st.radio("A2. How often do you use Genie Code?",
-                               ["Several times an hour", "Daily", "Weekly", "Monthly", "Rarely"], index=None)
-        c_where = st.radio("A3. Where do you use it?", ["SQL editor", "Notebooks", "Both"], index=None)
-        c_use_cases = st.multiselect("A4. What do you mainly use it for?", [
+        card("Genie Code", "<p>About writing code and SQL with Genie Code.</p>", section=True)
+        c_role = choice("What is your role?", ["Data engineer", "Data scientist", "Analyst", "Other"])
+        c_frequency = choice("How often do you use Genie Code?",
+                             ["Several times an hour", "Daily", "Weekly", "Monthly", "Rarely"])
+        c_where = choice("Where do you use it?", ["SQL editor", "Notebooks", "Both"])
+        c_use_cases = checkboxes("What do you mainly use it for?", [
             "Writing code", "Writing SQL queries", "Fixing errors", "Refactoring code", "Writing tests",
-            "Looking up documentation", "Other"])
-        c_hours = st.radio("A5. How many hours per week do you spend writing, fixing or reading code or SQL?",
-                           list(CODING_HOURS), index=None)
-        c_saved = st.radio("A6. On average, how much of that time does Genie Code save you?",
-                           list(TIME_SAVED), index=None)
-        c_productivity = st.select_slider("A7. Since using Genie Code, are you more productive? "
-                                          "(1 = much less, 5 = much more)", SCALE, value=3)
-        c_satisfaction = st.select_slider("A8. How satisfied are you with Genie Code's answers? "
-                                          "(1 = not satisfied, 5 = extremely satisfied)", SCALE, value=3)
-        c_comments = st.text_area("A9. Any other feedback on Genie Code?")
+            "Looking up documentation", "Other"], required=False)
+        c_hours = choice("How many hours per week do you spend writing, fixing or reading code or SQL?",
+                         CODING_HOURS)
+        c_saved = choice("On average, how much of that time does Genie Code save you?", TIME_SAVED)
+        c_productivity = scale("Since using Genie Code, are you more productive?", "much less", "much more")
+        c_satisfaction = scale("How satisfied are you with Genie Code's answers?", "not satisfied",
+                               "extremely satisfied")
+        c_comments = text("Any other feedback on Genie Code?")
 
     if uses_agents:
-        st.subheader("Genie")
-        g_role = st.radio("B1. What is your department?",
-                          ["Finance", "Retail", "Marketing", "Supply chain", "Management", "Data / IT", "Other"],
-                          index=None)
-        g_frequency = st.radio("B2. How often do you ask Genie questions?",
-                               ["Daily", "Weekly", "Monthly", "Rarely"], index=None)
-        g_before = st.multiselect("B3. Before Genie, how did you get these answers?", [
+        card("Genie", "<p>About asking data questions to Genie.</p>", section=True)
+        g_role = choice("What is your department?",
+                        ["Finance", "Retail", "Marketing", "Supply chain", "Management", "Data / IT", "Other"])
+        g_frequency = choice("How often do you ask Genie questions?", ["Daily", "Weekly", "Monthly", "Rarely"])
+        g_before = checkboxes("Before Genie, how did you get these answers?", [
             ASKED_ANALYST, "Looked in an existing report or dashboard", "Built it in Excel",
             "I didn't get the answer"])
-        g_min_before = st.radio("B4. Before Genie, how long did it take you on average to get an answer? "
-                                "(your own time, not counting waiting)", list(MIN_BEFORE), index=None)
-        g_min_with = st.radio("B5. How long does it take you with Genie?", list(MIN_WITH), index=None)
-        g_analyst = st.radio("B6. If you asked an analyst, how much of their working time do you think it took?",
-                             list(ANALYST_MIN), index=None, help="Skip if you never asked an analyst.")
-        g_trust = st.select_slider("B7. Do you trust Genie's answers enough to make decisions? "
-                                   "(1 = not at all, 5 = completely)", SCALE, value=3)
-        g_comments = st.text_area("B8. What would make you use Genie more?")
+        g_min_before = choice("Before Genie, how long did it take you on average to get an answer?", MIN_BEFORE,
+                              hint="Your own time, not counting waiting.")
+        g_min_with = choice("How long does it take you with Genie?", MIN_WITH)
+        g_analyst = choice("If you asked an analyst, how much of their working time do you think it took?",
+                           ANALYST_MIN, required=False, hint="Skip if you never asked an analyst.")
+        g_trust = scale("Do you trust Genie's answers enough to make decisions?", "not at all", "completely")
+        g_comments = text("What would make you use Genie more?")
 
-    submitted = st.form_submit_button("Submit")
+    submitted = st.form_submit_button("Submit", type="primary")
 
 if submitted:
     missing = []
     if uses_code and None in (c_role, c_frequency, c_where, c_hours, c_saved):
-        missing.append("Genie Code: A1, A2, A3, A5 and A6")
+        missing.append("Genie Code")
     if uses_agents and (None in (g_role, g_frequency, g_min_before, g_min_with) or not g_before):
-        missing.append("Genie: B1 to B5")
+        missing.append("Genie")
     if missing:
-        st.warning("Please answer " + "; ".join(missing) + ".")
+        st.error(f"Please answer all required questions (*) in the {' and '.join(missing)} section.")
         st.stop()
     # One row per tool, so the Genie ROI app can average each survey separately.
     if uses_code:
