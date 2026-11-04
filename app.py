@@ -150,20 +150,20 @@ with st.sidebar:
     currency = st.text_input("Currency", "USD")
     hourly_cost = st.number_input("Loaded cost per hour", 0.0, 1000.0, 75.0, 5.0)
     st.subheader("Genie Code")
-    # Survey: share of weekly coding time saved, spread over 5 working days.
-    code_survey = (sv["coding_hours"] * 60 / 5 * sv["time_saved_pct"] / 100
-                   if sv.get("coding_hours") is not None and sv.get("time_saved_pct") is not None else None)
     min_per_code = st.number_input(
-        "Minutes saved per active user-day", 0.0, 480.0,
-        20.0 if code_survey is None else min(round(code_survey, 1), 480.0), 5.0,
+        "Minutes saved per active user-day", 0.0, 480.0, from_survey("code_minutes_per_day", 20.0, 480.0), 5.0,
         help="Valued per day of use rather than per interaction: agent mode can log thousands of events a day. "
-             "From the survey: coding hours per week × 60 / 5 days × % of time saved.",
+             "From the survey: average answer to 'On a day you use Genie Code, how much time does it save you?'",
     )
     st.subheader("Genie spaces")
     min_per_question = st.number_input("Business-user minutes saved per answered question", 0.0, 240.0,
-                                       from_survey("minutes_saved", 10.0, 240.0), 1.0)
+                                       from_survey("minutes_saved", 10.0, 240.0), 1.0,
+                                       help="From the survey: (time per answer without Genie - with Genie) × share "
+                                            "of answers people would have looked for anyway / questions per answer.")
     deflection = st.slider("% of questions that would otherwise be an analyst request", 0, 100,
-                           int(from_survey("deflection_pct", 20, 100)))
+                           int(from_survey("deflection_pct", 20, 100)),
+                           help="From the survey: share of answers that would have been an analyst request / "
+                                "questions per answer.")
     min_per_request = st.number_input("Analyst minutes per ad-hoc request", 0.0, 480.0,
                                       from_survey("analyst_minutes", 45.0, 480.0), 5.0)
     st.subheader("Costs")

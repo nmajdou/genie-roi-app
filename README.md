@@ -119,8 +119,11 @@ principal**, so respondents need no permissions on the table.
 4. In the Genie ROI app, set `GENIE_ROI_SURVEY_TABLE` to the same table (uncomment it in `app.yaml`) and
    redeploy. Viewers need `SELECT` on the table, because the Genie ROI app queries it with their identity.
 
-Each answer bucket is stored as its midpoint (for example "10-30%" is stored as 20), so averages are
-approximate. Genie Code minutes per active user-day are derived as coding hours per week × 60 / 5 × % saved.
+Each answer is stored as the number it stands for (the midpoint of a range, for example "15-30 min" is stored as
+22.5, or a share for plain-language answers, for example "Most of them" is 70%), so averages are approximate.
+For Genie spaces, the minutes saved and the analyst share are computed per question: per answer, divided by the
+number of questions people say they ask to get one answer. Answers people say they would not have looked for
+without Genie count for zero.
 
 ## Files
 

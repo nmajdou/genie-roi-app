@@ -21,31 +21,46 @@ TABLE = os.getenv("GENIE_ROI_SURVEY_TABLE", "").strip()
 cfg = Config()
 
 # Answer buckets and the midpoint stored for each, in the unit the Genie ROI app uses.
+CODE_DAYS = {"Less than 1 day": 0.5, "1-2 days": 1.5, "3-4 days": 3.5, "Every working day": 5}
+CODE_MIN_PER_DAY = {"Less than 15 min": 7.5, "15-30 min": 22.5, "30 min - 1 h": 45, "1-2 h": 90,
+                    "More than 2 h": 150}
 CODING_HOURS = {"Less than 5 h": 2.5, "5-10 h": 7.5, "10-20 h": 15, "20-30 h": 25, "More than 30 h": 32}
 TIME_SAVED = {"0-10%": 5, "10-30%": 20, "30-50%": 40, "50-70%": 60, "More than 70%": 75}
-MIN_BEFORE = {"Less than 5 min": 2.5, "5-15 min": 10, "15-30 min": 22.5, "30-60 min": 45, "More than 1 h": 75}
-MIN_WITH = {"Less than 2 min": 1, "2-5 min": 3.5, "5-15 min": 10, "More than 15 min": 20}
-ANALYST_MIN = {"Less than 15 min": 7.5, "15-30 min": 22.5, "30-60 min": 45, "1-2 h": 90, "More than 2 h": 150}
-ASKED_ANALYST = "Asked an analyst or the data team"
+QUESTIONS_PER_ANSWER = {"Just one": 1, "2 or 3": 2.5, "4 or 5": 4.5, "More than 5": 6}
+MIN_BEFORE = {"Less than 5 min": 2.5, "5-15 min": 10, "15-30 min": 22.5, "30 min - 1 h": 45, "1-2 h": 90,
+              "More than 2 h": 150}
+MIN_WITH = {"Less than 2 min": 1, "2-5 min": 3.5, "5-15 min": 10, "15-30 min": 22.5, "More than 30 min": 40}
+# Plain-language answers, stored as the share (%) they stand for.
+WOULD_HAVE_LOOKED = {"Yes, almost all of them": 90, "Most of them": 70, "About half": 50, "Only a few": 25,
+                     "Hardly any": 10}
+ASKED_ANALYST = {"Never": 0, "Rarely": 10, "Sometimes": 30, "Often": 60, "Almost always": 90}
+ANALYST_MIN = {"A few minutes": 7.5, "Up to 30 min": 20, "About an hour": 60, "Half a day": 240,
+               "A day or more": 480}
 SCALE = [1, 2, 3, 4, 5]
 
 COLUMNS = [
-    "response_id", "submitted_at", "survey", "role", "frequency", "where_used", "use_cases",
-    "coding_hours", "time_saved_pct", "productivity", "satisfaction",
-    "before_methods", "asked_analyst", "minutes_before", "minutes_with_genie", "minutes_saved",
-    "analyst_minutes", "trust", "comments",
+    "response_id", "submitted_at", "survey", "role", "frequency",
+    "code_minutes_per_day", "coding_hours", "time_saved_pct", "satisfaction",
+    "questions_per_answer", "minutes_before", "minutes_with_genie", "substitution_pct", "analyst_share_pct",
+    "analyst_minutes", "minutes_saved_per_question", "deflection_pct", "trust", "comments",
 ]
 DDL = """CREATE TABLE IF NOT EXISTS {table} (
   response_id STRING, submitted_at TIMESTAMP, survey STRING COMMENT 'genie_code or genie_agents',
-  role STRING, frequency STRING, where_used STRING, use_cases STRING,
-  coding_hours DOUBLE COMMENT 'hours of coding per week (bucket midpoint)',
-  time_saved_pct DOUBLE COMMENT 'share of coding time saved by Genie Code (bucket midpoint)',
-  productivity INT, satisfaction INT,
-  before_methods STRING, asked_analyst BOOLEAN,
-  minutes_before DOUBLE, minutes_with_genie DOUBLE,
-  minutes_saved DOUBLE COMMENT 'minutes_before - minutes_with_genie, floored at 0',
-  analyst_minutes DOUBLE, trust INT, comments STRING
-) COMMENT 'Genie ROI survey responses (anonymous)'"""
+  role STRING, frequency STRING COMMENT 'Genie Code: days of use per week; Genie: how often',
+  code_minutes_per_day DOUBLE COMMENT 'Genie Code: minutes saved on a day of use',
+  coding_hours DOUBLE COMMENT 'Genie Code: hours of coding per week',
+  time_saved_pct DOUBLE COMMENT 'Genie Code: share of coding time saved',
+  satisfaction INT,
+  questions_per_answer DOUBLE COMMENT 'Genie: questions asked to get one answer',
+  minutes_before DOUBLE COMMENT 'Genie: own minutes per answer without Genie',
+  minutes_with_genie DOUBLE COMMENT 'Genie: own minutes per answer with Genie',
+  substitution_pct DOUBLE COMMENT 'Genie: share of answers that would have been looked for without Genie',
+  analyst_share_pct DOUBLE COMMENT 'Genie: share of answers that would otherwise have been an analyst request',
+  analyst_minutes DOUBLE COMMENT 'Genie: analyst minutes per request',
+  minutes_saved_per_question DOUBLE COMMENT '(without - with) x substitution / questions per answer',
+  deflection_pct DOUBLE COMMENT 'analyst_share_pct / questions per answer',
+  trust INT, comments STRING
+) COMMENT 'Genie ROI survey responses (anonymous), one row per tool and respondent'"""
 
 
 def run(statement: str, params: dict | None = None) -> None:
@@ -138,11 +153,6 @@ def choice(label: str, options, required: bool = True, hint: str = "", horizonta
                                                  label_visibility="collapsed")
 
 
-def checkboxes(label: str, options, required: bool = True, hint: str = "Select all that apply.") -> list[str]:
-    box = question(label, required, hint)
-    return [o for i, o in enumerate(options) if box.checkbox(o, key=f"{label}-{i}")]
-
-
 def scale(label: str, low: str, high: str, required: bool = False):
     box = question(label, required, f"1 = {low}, 5 = {high}")
     return box.radio(label, SCALE, index=None, horizontal=True, label_visibility="collapsed")
@@ -178,33 +188,33 @@ with st.form("survey", border=False):
     if uses_code:
         card("Genie Code", "<p>About writing code and SQL with Genie Code.</p>", section=True)
         c_role = choice("What is your role?", ["Data engineer", "Data scientist", "Analyst", "Other"])
-        c_frequency = choice("How often do you use Genie Code?",
-                             ["Several times an hour", "Daily", "Weekly", "Monthly", "Rarely"])
-        c_where = choice("Where do you use it?", ["SQL editor", "Notebooks", "Both"])
-        c_use_cases = checkboxes("What do you mainly use it for?", [
-            "Writing code", "Writing SQL queries", "Fixing errors", "Refactoring code", "Writing tests",
-            "Looking up documentation", "Other"], required=False)
+        c_days = choice("On how many days per week do you use Genie Code?", CODE_DAYS)
+        c_min_day = choice("On a day you use Genie Code, how much time does it save you in total?",
+                           CODE_MIN_PER_DAY, hint="Compared with doing the same work without it.")
         c_hours = choice("How many hours per week do you spend writing, fixing or reading code or SQL?",
                          CODING_HOURS)
-        c_saved = choice("On average, how much of that time does Genie Code save you?", TIME_SAVED)
-        c_productivity = scale("Since using Genie Code, are you more productive?", "much less", "much more")
+        c_saved = choice("On average, what share of that time does Genie Code save you?", TIME_SAVED)
         c_satisfaction = scale("How satisfied are you with Genie Code's answers?", "not satisfied",
                                "extremely satisfied")
-        c_comments = text("Any other feedback on Genie Code?")
+        c_comments = text("Anything else about Genie Code?")
 
     if uses_agents:
         card("Genie", "<p>About asking data questions to Genie.</p>", section=True)
         g_role = choice("What is your department?",
                         ["Finance", "Retail", "Marketing", "Supply chain", "Management", "Data / IT", "Other"])
-        g_frequency = choice("How often do you ask Genie questions?", ["Daily", "Weekly", "Monthly", "Rarely"])
-        g_before = checkboxes("Before Genie, how did you get these answers?", [
-            ASKED_ANALYST, "Looked in an existing report or dashboard", "Built it in Excel",
-            "I didn't get the answer"])
-        g_min_before = choice("Before Genie, how long did it take you on average to get an answer?", MIN_BEFORE,
-                              hint="Your own time, not counting waiting.")
-        g_min_with = choice("How long does it take you with Genie?", MIN_WITH)
-        g_analyst = choice("If you asked an analyst, how much of their working time do you think it took?",
-                           ANALYST_MIN, required=False, hint="Skip if you never asked an analyst.")
+        g_frequency = choice("How often do you use Genie?", ["Daily", "Weekly", "Monthly", "Rarely"])
+        g_qpa = choice("How many questions do you usually ask Genie before you have the answer you need?",
+                       QUESTIONS_PER_ANSWER)
+        g_with = choice("How long does it usually take you to get that answer with Genie?", MIN_WITH)
+        g_before = choice("Before Genie, how long did it take you to get the same kind of answer?", MIN_BEFORE,
+                          hint="Searching reports, building it in Excel, writing a request... "
+                               "Not counting time spent waiting for someone else.")
+        g_subst = choice("If Genie didn't exist, would you still have looked for these answers?",
+                         WOULD_HAVE_LOOKED, hint="Some questions you only ask because Genie makes it easy.")
+        g_asked = choice("Before Genie, how often would you have asked an analyst or the data team for this "
+                         "kind of answer?", ASKED_ANALYST)
+        g_analyst_min = choice("When you asked an analyst, roughly how much of their time do you think it took?",
+                               ANALYST_MIN, required=False, hint="Skip if you never asked an analyst.")
         g_trust = scale("Do you trust Genie's answers enough to make decisions?", "not at all", "completely")
         g_comments = text("What would make you use Genie more?")
 
@@ -212,9 +222,9 @@ with st.form("survey", border=False):
 
 if submitted:
     missing = []
-    if uses_code and None in (c_role, c_frequency, c_where, c_hours, c_saved):
+    if uses_code and None in (c_role, c_days, c_min_day, c_hours, c_saved):
         missing.append("Genie Code")
-    if uses_agents and (None in (g_role, g_frequency, g_min_before, g_min_with) or not g_before):
+    if uses_agents and None in (g_role, g_frequency, g_qpa, g_with, g_before, g_subst, g_asked):
         missing.append("Genie")
     if missing:
         st.error(f"Please answer all required questions (*) in the {' and '.join(missing)} section.")
@@ -222,18 +232,23 @@ if submitted:
     # One row per tool, so the Genie ROI app can average each survey separately.
     if uses_code:
         save({
-            "survey": "genie_code", "role": c_role, "frequency": c_frequency, "where_used": c_where,
-            "use_cases": "; ".join(c_use_cases), "coding_hours": CODING_HOURS[c_hours],
-            "time_saved_pct": TIME_SAVED[c_saved], "productivity": c_productivity,
-            "satisfaction": c_satisfaction, "comments": c_comments.strip() or None,
+            "survey": "genie_code", "role": c_role, "frequency": c_days,
+            "code_minutes_per_day": CODE_MIN_PER_DAY[c_min_day], "coding_hours": CODING_HOURS[c_hours],
+            "time_saved_pct": TIME_SAVED[c_saved], "satisfaction": c_satisfaction,
+            "comments": c_comments.strip() or None,
         })
     if uses_agents:
+        qpa, subst = QUESTIONS_PER_ANSWER[g_qpa], WOULD_HAVE_LOOKED[g_subst]
+        before, with_genie = MIN_BEFORE[g_before], MIN_WITH[g_with]
         save({
             "survey": "genie_agents", "role": g_role, "frequency": g_frequency,
-            "before_methods": "; ".join(g_before), "asked_analyst": ASKED_ANALYST in g_before,
-            "minutes_before": MIN_BEFORE[g_min_before], "minutes_with_genie": MIN_WITH[g_min_with],
-            "minutes_saved": max(MIN_BEFORE[g_min_before] - MIN_WITH[g_min_with], 0.0),
-            "analyst_minutes": ANALYST_MIN[g_analyst] if g_analyst else None,
+            "questions_per_answer": qpa, "minutes_before": before, "minutes_with_genie": with_genie,
+            "substitution_pct": subst, "analyst_share_pct": ASKED_ANALYST[g_asked],
+            "analyst_minutes": ANALYST_MIN[g_analyst_min] if g_analyst_min else None,
+            # Per question, because the Genie ROI app multiplies by the number of questions asked. Answers
+            # people would not have looked for without Genie are valued at zero.
+            "minutes_saved_per_question": max(before - with_genie, 0.0) * subst / 100 / qpa,
+            "deflection_pct": ASKED_ANALYST[g_asked] / qpa,
             "trust": g_trust, "comments": g_comments.strip() or None,
         })
     st.session_state.done = True

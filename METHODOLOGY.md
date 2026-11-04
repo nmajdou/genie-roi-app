@@ -45,15 +45,20 @@ survey below before presenting results.
 * Data is as of the last refresh job run (daily); system table data itself lands within about an hour.
 * Conversations are counted per day, so one spanning several days is counted once per day.
 
-### Recommended survey (Genie Code, adapted from the Databricks guide)
+### Survey
 
-1. What is your role? (data engineer, data scientist, analyst, ...)
-2. How often do you use Genie Code? (daily, weekly, monthly, rarely)
-3. Where do you use it? (SQL editor, notebooks, both)
-4. What do you use it for? (writing code, debugging, explaining code, documentation, ...)
-5. How satisfied are you with Genie Code? (1-5)
-6. How much has Genie Code improved your productivity? (1-5)
-7. Roughly what share of your coding time does it save? (0%, 1-10%, 10-30%, 30-50%, 50-70%, 70%+)
-8. Any other feedback?
+The survey app (`survey/` in the repository) asks the questions below and saves anonymous answers. When it is
+set up, the averages become the default assumptions in the sidebar. The hourly cost is never taken from the
+survey: get it from Finance.
 
-Enter the average time-saved answer in the *Survey-based estimate* section of the Overview tab.
+| Question | Feeds |
+|---|---|
+| Genie Code: on a day you use it, how much time does it save you? | Minutes saved per active user-day |
+| Genie Code: hours of coding per week, and share of that time saved | Survey-based estimate |
+| Genie: questions asked to get one answer | Divides the time saved and the analyst share per question |
+| Genie: time to get an answer with Genie, and before Genie | Business-user minutes saved |
+| Genie: would you still have looked for these answers without Genie? | Answers not looked for before count for zero |
+| Genie: how often would you have asked an analyst? | % of questions that would otherwise be an analyst request |
+| Genie: how much analyst time did a request take? | Analyst minutes per request |
+
+Role, frequency, satisfaction, trust and comments describe adoption and do not change the ROI.
