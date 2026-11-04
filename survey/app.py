@@ -97,77 +97,81 @@ st.write("Five minutes, anonymous: we don't record your name or email. Your answ
 
 if st.session_state.get("done"):
     st.success("Thank you! Your answers have been recorded.")
-    if st.button("Answer for the other tool"):
-        st.session_state.done = False
-        st.rerun()
     st.stop()
 
-tool = st.radio(
-    "Which tool are you answering about?",
-    ["Genie Code (writing code or SQL in notebooks / SQL editor)", "Genie (asking data questions in plain language)"],
-    index=None,
-)
+st.write("**Which tools do you use?** Tick one or both.")
+uses_code = st.checkbox("Genie Code: writing code or SQL in notebooks or the SQL editor")
+uses_agents = st.checkbox("Genie: asking data questions in plain language")
+if not (uses_code or uses_agents):
+    st.stop()
 
-if tool and tool.startswith("Genie Code"):
-    with st.form("genie_code"):
-        role = st.radio("1. What is your role?", ["Data engineer", "Data scientist", "Analyst", "Other"], index=None)
-        frequency = st.radio("2. How often do you use Genie Code?",
-                             ["Several times an hour", "Daily", "Weekly", "Monthly", "Rarely"], index=None)
-        where_used = st.radio("3. Where do you use it?", ["SQL editor", "Notebooks", "Both"], index=None)
-        use_cases = st.multiselect("4. What do you mainly use it for?", [
+with st.form("survey"):
+    if uses_code:
+        st.subheader("Genie Code")
+        c_role = st.radio("A1. What is your role?", ["Data engineer", "Data scientist", "Analyst", "Other"],
+                          index=None)
+        c_frequency = st.radio("A2. How often do you use Genie Code?",
+                               ["Several times an hour", "Daily", "Weekly", "Monthly", "Rarely"], index=None)
+        c_where = st.radio("A3. Where do you use it?", ["SQL editor", "Notebooks", "Both"], index=None)
+        c_use_cases = st.multiselect("A4. What do you mainly use it for?", [
             "Writing code", "Writing SQL queries", "Fixing errors", "Refactoring code", "Writing tests",
             "Looking up documentation", "Other"])
-        hours = st.radio("5. How many hours per week do you spend writing, fixing or reading code or SQL?",
-                         list(CODING_HOURS), index=None)
-        saved = st.radio("6. On average, how much of that time does Genie Code save you?",
-                         list(TIME_SAVED), index=None)
-        productivity = st.select_slider("7. Since using Genie Code, are you more productive? "
-                                        "(1 = much less, 5 = much more)", SCALE, value=3)
-        satisfaction = st.select_slider("8. How satisfied are you with Genie Code's answers? "
-                                        "(1 = not satisfied, 5 = extremely satisfied)", SCALE, value=3)
-        comments = st.text_area("9. Any other feedback?")
-        submitted = st.form_submit_button("Submit")
-    if submitted:
-        if None in (role, frequency, where_used, hours, saved):
-            st.warning("Please answer questions 1, 2, 3, 5 and 6.")
-        else:
-            save({
-                "survey": "genie_code", "role": role, "frequency": frequency, "where_used": where_used,
-                "use_cases": "; ".join(use_cases), "coding_hours": CODING_HOURS[hours],
-                "time_saved_pct": TIME_SAVED[saved], "productivity": productivity, "satisfaction": satisfaction,
-                "comments": comments.strip() or None,
-            })
-            st.session_state.done = True
-            st.rerun()
+        c_hours = st.radio("A5. How many hours per week do you spend writing, fixing or reading code or SQL?",
+                           list(CODING_HOURS), index=None)
+        c_saved = st.radio("A6. On average, how much of that time does Genie Code save you?",
+                           list(TIME_SAVED), index=None)
+        c_productivity = st.select_slider("A7. Since using Genie Code, are you more productive? "
+                                          "(1 = much less, 5 = much more)", SCALE, value=3)
+        c_satisfaction = st.select_slider("A8. How satisfied are you with Genie Code's answers? "
+                                          "(1 = not satisfied, 5 = extremely satisfied)", SCALE, value=3)
+        c_comments = st.text_area("A9. Any other feedback on Genie Code?")
 
-elif tool:
-    with st.form("genie_agents"):
-        role = st.radio("1. What is your department?",
-                        ["Finance", "Retail", "Marketing", "Supply chain", "Management", "Other"], index=None)
-        frequency = st.radio("2. How often do you ask Genie questions?",
-                             ["Daily", "Weekly", "Monthly", "Rarely"], index=None)
-        before = st.multiselect("3. Before Genie, how did you get these answers?", [
-            ASKED_ANALYST, "Looked in an existing report or dashboard", "Built it in Excel", "I didn't get the answer"])
-        min_before = st.radio("4. Before Genie, how long did it take you on average to get an answer? "
-                              "(your own time, not counting waiting)", list(MIN_BEFORE), index=None)
-        min_with = st.radio("5. How long does it take you with Genie?", list(MIN_WITH), index=None)
-        analyst = st.radio("6. If you asked an analyst, how much of their working time do you think it took?",
-                           list(ANALYST_MIN), index=None, help="Skip if you never asked an analyst.")
-        trust = st.select_slider("7. Do you trust Genie's answers enough to make decisions? "
-                                 "(1 = not at all, 5 = completely)", SCALE, value=3)
-        comments = st.text_area("8. What would make you use Genie more?")
-        submitted = st.form_submit_button("Submit")
-    if submitted:
-        if None in (role, frequency, min_before, min_with) or not before:
-            st.warning("Please answer questions 1 to 5.")
-        else:
-            save({
-                "survey": "genie_agents", "role": role, "frequency": frequency,
-                "before_methods": "; ".join(before), "asked_analyst": ASKED_ANALYST in before,
-                "minutes_before": MIN_BEFORE[min_before], "minutes_with_genie": MIN_WITH[min_with],
-                "minutes_saved": max(MIN_BEFORE[min_before] - MIN_WITH[min_with], 0.0),
-                "analyst_minutes": ANALYST_MIN[analyst] if analyst else None,
-                "trust": trust, "comments": comments.strip() or None,
-            })
-            st.session_state.done = True
-            st.rerun()
+    if uses_agents:
+        st.subheader("Genie")
+        g_role = st.radio("B1. What is your department?",
+                          ["Finance", "Retail", "Marketing", "Supply chain", "Management", "Data / IT", "Other"],
+                          index=None)
+        g_frequency = st.radio("B2. How often do you ask Genie questions?",
+                               ["Daily", "Weekly", "Monthly", "Rarely"], index=None)
+        g_before = st.multiselect("B3. Before Genie, how did you get these answers?", [
+            ASKED_ANALYST, "Looked in an existing report or dashboard", "Built it in Excel",
+            "I didn't get the answer"])
+        g_min_before = st.radio("B4. Before Genie, how long did it take you on average to get an answer? "
+                                "(your own time, not counting waiting)", list(MIN_BEFORE), index=None)
+        g_min_with = st.radio("B5. How long does it take you with Genie?", list(MIN_WITH), index=None)
+        g_analyst = st.radio("B6. If you asked an analyst, how much of their working time do you think it took?",
+                             list(ANALYST_MIN), index=None, help="Skip if you never asked an analyst.")
+        g_trust = st.select_slider("B7. Do you trust Genie's answers enough to make decisions? "
+                                   "(1 = not at all, 5 = completely)", SCALE, value=3)
+        g_comments = st.text_area("B8. What would make you use Genie more?")
+
+    submitted = st.form_submit_button("Submit")
+
+if submitted:
+    missing = []
+    if uses_code and None in (c_role, c_frequency, c_where, c_hours, c_saved):
+        missing.append("Genie Code: A1, A2, A3, A5 and A6")
+    if uses_agents and (None in (g_role, g_frequency, g_min_before, g_min_with) or not g_before):
+        missing.append("Genie: B1 to B5")
+    if missing:
+        st.warning("Please answer " + "; ".join(missing) + ".")
+        st.stop()
+    # One row per tool, so the Genie ROI app can average each survey separately.
+    if uses_code:
+        save({
+            "survey": "genie_code", "role": c_role, "frequency": c_frequency, "where_used": c_where,
+            "use_cases": "; ".join(c_use_cases), "coding_hours": CODING_HOURS[c_hours],
+            "time_saved_pct": TIME_SAVED[c_saved], "productivity": c_productivity,
+            "satisfaction": c_satisfaction, "comments": c_comments.strip() or None,
+        })
+    if uses_agents:
+        save({
+            "survey": "genie_agents", "role": g_role, "frequency": g_frequency,
+            "before_methods": "; ".join(g_before), "asked_analyst": ASKED_ANALYST in g_before,
+            "minutes_before": MIN_BEFORE[g_min_before], "minutes_with_genie": MIN_WITH[g_min_with],
+            "minutes_saved": max(MIN_BEFORE[g_min_before] - MIN_WITH[g_min_with], 0.0),
+            "analyst_minutes": ANALYST_MIN[g_analyst] if g_analyst else None,
+            "trust": g_trust, "comments": g_comments.strip() or None,
+        })
+    st.session_state.done = True
+    st.rerun()
