@@ -105,11 +105,11 @@ principal**, so respondents need no permissions on the table.
    application id is on the app's **Authorization** tab) the right to write it:
 
    ```sql
-   CREATE SCHEMA IF NOT EXISTS main.genie_roi;
-   GRANT USE CATALOG ON CATALOG main TO `<survey-app-sp-application-id>`;
-   GRANT USE SCHEMA, CREATE TABLE ON SCHEMA main.genie_roi TO `<survey-app-sp-application-id>`;
+   -- schema self_dev.sandbox must already exist
+   GRANT USE CATALOG ON CATALOG self_dev TO `<survey-app-sp-application-id>`;
+   GRANT USE SCHEMA, CREATE TABLE ON SCHEMA self_dev.sandbox TO `<survey-app-sp-application-id>`;
    -- if the table already exists instead:
-   GRANT SELECT, MODIFY ON TABLE main.genie_roi.survey_responses TO `<survey-app-sp-application-id>`;
+   GRANT SELECT, MODIFY ON TABLE self_dev.sandbox.genie_roi_survey_responses TO `<survey-app-sp-application-id>`;
    ```
 
 2. Create a custom app from the `survey/` folder of the Git folder, with a SQL warehouse resource (key

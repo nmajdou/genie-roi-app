@@ -8,5 +8,6 @@ env:
   # - name: GENIE_ROI_SCHEMA
   #   value: main.genie_roi
   # Optional: responses table written by the survey app (survey/). Its averages become the default assumptions.
-  # - name: GENIE_ROI_SURVEY_TABLE
-  #   value: main.genie_roi.survey_responses
+  # If the table doesn't exist or can't be read, the app keeps its placeholder assumptions.
+  - name: GENIE_ROI_SURVEY_TABLE
+    value: self_dev.sandbox.genie_roi_survey_responses
