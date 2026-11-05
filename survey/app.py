@@ -11,14 +11,11 @@ import uuid
 from datetime import datetime, timezone
 
 import streamlit as st
-from databricks import sql
-from databricks.sdk.core import Config
 
 st.set_page_config(page_title="Genie survey", page_icon="📝", layout="centered")
 
 WAREHOUSE_ID = os.getenv("DATABRICKS_WAREHOUSE_ID")
 TABLE = os.getenv("GENIE_ROI_SURVEY_TABLE", "").strip()
-cfg = Config()
 
 # Answer buckets and the midpoint stored for each, in the unit the Genie ROI app uses.
 CODE_DAYS = {"Less than 1 day": 0.5, "1-2 days": 1.5, "3-4 days": 3.5, "Every working day": 5}
@@ -75,6 +72,11 @@ def save(rows: list[dict]) -> None:
     The table is created on the first save of the app process, not at page load, so the form shows at once
     even when the warehouse is still starting.
     """
+    # Imported here, not at the top: the SQL connector and auth setup are slow and only needed on submit.
+    from databricks import sql
+    from databricks.sdk.core import Config
+
+    cfg = Config()
     stamp, params, values = datetime.now(timezone.utc), {}, []
     for i, answers in enumerate(rows):
         row = {c: answers.get(c) for c in COLUMNS} | {"response_id": str(uuid.uuid4()), "submitted_at": stamp}
