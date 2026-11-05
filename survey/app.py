@@ -63,30 +63,36 @@ DDL = """CREATE TABLE IF NOT EXISTS {table} (
 ) COMMENT 'Genie ROI survey responses (anonymous), one row per tool and respondent'"""
 
 
-def run(statement: str, params: dict | None = None) -> None:
+@st.cache_resource(show_spinner=False)
+def table_state() -> dict:
+    """Shared by all sessions of this app process: has the table been checked yet?"""
+    return {"checked": False}
+
+
+def save(rows: list[dict]) -> None:
+    """Insert one row per tool with a single connection and statement.
+
+    The table is created on the first save of the app process, not at page load, so the form shows at once
+    even when the warehouse is still starting.
+    """
+    stamp, params, values = datetime.now(timezone.utc), {}, []
+    for i, answers in enumerate(rows):
+        row = {c: answers.get(c) for c in COLUMNS} | {"response_id": str(uuid.uuid4()), "submitted_at": stamp}
+        params |= {f"{c}_{i}": row[c] for c in COLUMNS}
+        values.append("(" + ", ".join(f":{c}_{i}" for c in COLUMNS) + ")")
     with sql.connect(
         server_hostname=cfg.host,
         http_path=f"/sql/1.0/warehouses/{WAREHOUSE_ID}",
         credentials_provider=lambda: cfg.authenticate,
     ) as conn, conn.cursor() as cur:
-        cur.execute(statement, params or {})
-
-
-@st.cache_resource(show_spinner=False)
-def ensure_table() -> str | None:
-    """Create the responses table if needed. Returns an error message, or None."""
-    try:
-        run(DDL.format(table=TABLE))
-        return None
-    except Exception as e:  # noqa: BLE001
-        return str(e)
-
-
-def save(answers: dict) -> None:
-    row = {c: answers.get(c) for c in COLUMNS}
-    row["response_id"] = str(uuid.uuid4())
-    row["submitted_at"] = datetime.now(timezone.utc)
-    run(f"INSERT INTO {TABLE} ({', '.join(COLUMNS)}) VALUES ({', '.join(':' + c for c in COLUMNS)})", row)
+        state = table_state()
+        if not state["checked"]:
+            try:
+                cur.execute(DDL.format(table=TABLE))
+            except Exception:  # noqa: BLE001 - the app may only have MODIFY on an existing table
+                pass
+            state["checked"] = True
+        cur.execute(f"INSERT INTO {TABLE} ({', '.join(COLUMNS)}) VALUES {', '.join(values)}", params)
 
 
 # ---------------------------------------------------------------------------
@@ -97,10 +103,6 @@ if not WAREHOUSE_ID:
     st.stop()
 if not re.fullmatch(r"[\w-]+\.[\w-]+\.[\w-]+", TABLE):
     st.error("Set GENIE_ROI_SURVEY_TABLE to <catalog>.<schema>.<table> in app.yaml (see README).")
-    st.stop()
-if err := ensure_table():
-    st.error("The survey table is not available. Ask an admin to create it and grant the app access (see README).")
-    st.code(err[:500])
     st.stop()
 
 # ---------------------------------------------------------------------------
@@ -230,8 +232,9 @@ if submitted:
         st.error(f"Please answer all required questions (*) in the {' and '.join(missing)} section.")
         st.stop()
     # One row per tool, so the Genie ROI app can average each survey separately.
+    rows = []
     if uses_code:
-        save({
+        rows.append({
             "survey": "genie_code", "role": c_role, "frequency": c_days,
             "code_minutes_per_day": CODE_MIN_PER_DAY[c_min_day], "coding_hours": CODING_HOURS[c_hours],
             "time_saved_pct": TIME_SAVED[c_saved], "satisfaction": c_satisfaction,
@@ -240,7 +243,7 @@ if submitted:
     if uses_agents:
         qpa, subst = QUESTIONS_PER_ANSWER[g_qpa], WOULD_HAVE_LOOKED[g_subst]
         before, with_genie = MIN_BEFORE[g_before], MIN_WITH[g_with]
-        save({
+        rows.append({
             "survey": "genie_agents", "role": g_role, "frequency": g_frequency,
             "questions_per_answer": qpa, "minutes_before": before, "minutes_with_genie": with_genie,
             "substitution_pct": subst, "analyst_share_pct": ASKED_ANALYST[g_asked],
@@ -251,5 +254,13 @@ if submitted:
             "deflection_pct": ASKED_ANALYST[g_asked] / qpa,
             "trust": g_trust, "comments": g_comments.strip() or None,
         })
+    try:
+        with st.spinner("Saving your answers..."):
+            save(rows)
+    except Exception as e:  # noqa: BLE001
+        st.error("Sorry, your answers could not be saved. Please try again in a minute, or contact the survey "
+                 "owner if it keeps failing.")
+        print(f"Survey save failed: {e}", flush=True)
+        st.stop()
     st.session_state.done = True
     st.rerun()
